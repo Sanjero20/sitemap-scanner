@@ -3,6 +3,7 @@ import os
 import asyncio
 import pandas as pd
 from playwright.async_api import async_playwright
+from playwright_stealth.stealth import Stealth
 
 CONCURRENCY = 10
 TIMEOUT = 8000
@@ -24,6 +25,9 @@ async def check_sitemap(context, row, index, total, semaphore):
 
         page = await context.new_page()
 
+        stealth = Stealth()
+        await stealth.apply_stealth_async(page)
+
         try:
             response = await page.goto(
                 sitemap_url,
@@ -32,10 +36,20 @@ async def check_sitemap(context, row, index, total, semaphore):
             )
 
             if response and response.status == 200:
-                print("✅ FOUND")
-                result = row.to_dict()
-                result["sitemap_url"] = sitemap_url
-                return ("has", result)
+                final_url = page.url.rstrip("/")
+
+                # Consider valid if it ends with .xml (could be /sitemap_index.xml)
+                if final_url.lower().endswith(".xml"):
+                    print(f"✅ FOUND ({final_url})")
+                    result = row.to_dict()
+                    result["sitemap_url"] = final_url
+                    return ("has", result)
+                else:
+                    print(f"❌ REDIRECTED TO NON-SITEMAP ({final_url})")
+                    result = row.to_dict()
+                    result["status_code"] = response.status
+                    result["redirected_to"] = final_url
+                    return ("no", result)
 
             elif response:
                 print(f"❌ MISSING ({response.status})")
